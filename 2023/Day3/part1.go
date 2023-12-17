@@ -2,20 +2,27 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
 )
 
 func main() {
-	solvePuzzle("example.txt")
+	part1("input.txt")
+	part2("input.txt")
 }
 
 type Result struct {
 	Numbers   []string
 	Positions [][]int
+}
+
+type ResultRatio struct {
+	Numbers   []string
+	Positions [][]int
+	Ratio     []int
 }
 
 type SearchArea struct {
@@ -32,25 +39,48 @@ func defineSearchArea(myResult Result, i, rowNum, colNum int) SearchArea {
 	if a.searchRowStart < 0 {
 		a.searchRowStart = 0
 	}
-	fmt.Println("searchRowStart:", a.searchRowStart)
 
 	a.searchRowEnd = myResult.Positions[i][0] + 1
 	if a.searchRowEnd > rowNum-1 {
 		a.searchRowEnd = rowNum - 1
 	}
-	fmt.Println("searchRowEnd:", a.searchRowEnd)
 
 	a.searchColStart = myResult.Positions[i][1] - 1
 	if a.searchColStart < 0 {
 		a.searchColStart = 0
 	}
-	fmt.Println("searchColStart:", a.searchColStart)
 
 	a.searchColEnd = myResult.Positions[i][1] + len(myResult.Numbers[i])
 	if a.searchColEnd > colNum-1 {
 		a.searchColEnd = colNum - 1
 	}
-	fmt.Println("searchColEnd:", a.searchColEnd)
+	fmt.Printf("Searching area: (%d, %d), (%d, %d)\n", a.searchRowStart, a.searchColStart, a.searchRowEnd, a.searchColEnd)
+
+	return a
+}
+
+func defineGearSearchArea(i, j, maxRow, maxCol int) SearchArea {
+	a := SearchArea{}
+
+	a.searchRowStart = i - 1
+	if a.searchRowStart < 0 {
+		a.searchRowStart = 0
+	}
+
+	a.searchRowEnd = i + 1
+	if a.searchRowEnd > maxRow {
+		a.searchRowEnd = maxRow
+	}
+
+	a.searchColStart = j - 1
+	if a.searchColStart < 0 {
+		a.searchColStart = 0
+	}
+
+	a.searchColEnd = j + 1
+	if a.searchColEnd > maxCol {
+		a.searchColEnd = maxCol
+	}
 
 	return a
 }
@@ -59,34 +89,31 @@ func areaSearch(a SearchArea, maxtrix [][]rune, toCheck string) bool {
 	foundParts := false
 
 	for row := a.searchRowStart; row <= a.searchRowEnd && false == foundParts; row++ {
-		fmt.Printf("row %d/%d start.\n", row, a.searchRowEnd)
+		fmt.Printf("row %d/%d start.", row, a.searchRowEnd)
 
 		for colum := a.searchColStart; colum <= a.searchColEnd && false == foundParts; colum++ {
-			fmt.Printf("col %d start.\n", colum)
 			if isSymbol(maxtrix[row][colum]) {
 				if !foundParts {
 					foundParts = true
+					fmt.Print("Found!\n")
 				}
+			} else {
+				fmt.Print(".")
 			}
-			fmt.Printf("colum %d finished.\n", colum)
 		}
-
-		fmt.Printf("row %d finished.\n", row)
-		fmt.Println("")
 	}
-
-	if !foundParts {
-		fmt.Printf("%s未找到符号\n", toCheck)
-		return false
-	} else {
-		fmt.Printf("%s找到了相邻符\n", toCheck)
-		return true
-	}
+	return foundParts
 }
 
 func printResult(result Result) {
 	fmt.Println("Numbers:", result.Numbers)
 	fmt.Println("Pos", result.Positions)
+}
+
+func printResultRatio(result ResultRatio) {
+	fmt.Println("Numbers:", result.Numbers)
+	fmt.Println("Pos", result.Positions)
+	fmt.Println("Ratio", result.Ratio)
 }
 
 func scanHorizontalContinuousNumbers(matix [][]rune, row, col int) (string, []int) {
@@ -122,17 +149,141 @@ func findAllNumbers(matrix [][]rune) Result {
 	return myResult
 }
 
-func algoTwo(matrix [][]rune) {
+func findAllGears(matrix [][]rune, allNumbers Result) ResultRatio {
+
+	myResult := ResultRatio{}
+	isGearResult := false
+	ratio := 0
+
+	for i := 0; i < len(matrix); i++ {
+		for j := 0; j < len(matrix[i]); j++ {
+			//fmt.Println("scaning (", i, ",", j, ")")
+			isGearResult, ratio = isGearAndRatio(matrix, i, j, allNumbers)
+			if isGearResult {
+				// found *
+				pos := []int{i, j}
+				myResult.Numbers = append(myResult.Numbers, string(matrix[i][j]))
+				myResult.Positions = append(myResult.Positions, pos)
+				myResult.Ratio = append(myResult.Ratio, ratio)
+				fmt.Println("Ratio saved")
+			} else {
+				// fmt.Println("Not *")
+			}
+		}
+	}
+	fmt.Println("Found ", len(myResult.Numbers), "x * totaly")
+	return myResult
+}
+
+func isGearAndRatio(matrix [][]rune, i, j int, allNumbers Result) (bool, int) {
+	char := matrix[i][j]
+	maxRow := len(matrix)
+	maxCol := len(matrix[i])
+
+	if char == '*' {
+		searchArea := defineGearSearchArea(i, j, maxRow, maxCol)
+		isFound, ratio := findGearAdjacentNum(searchArea, matrix, allNumbers)
+		if isFound {
+			fmt.Println("Found gear, ratio=", ratio)
+		}
+		return isFound, ratio
+	} else {
+		return false, 0
+	}
+
+}
+
+func containsValue(slice []int, toCheck int) bool {
+	for _, v := range slice {
+		if v == toCheck {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findGearAdjacentNum(area SearchArea, matrix [][]rune, allNumbers Result) (bool, int) {
+
+	buffer := []int{}
+	index := []int{}
+
+	for i := area.searchRowStart; i <= area.searchRowEnd; i++ {
+		for j := area.searchColStart; j <= area.searchColEnd; j++ {
+
+			if unicode.IsDigit(matrix[i][j]) {
+				number, idx := scanAdjacentNumber(i, j, matrix, allNumbers)
+				if !containsValue(index, idx) {
+					buffer = append(buffer, number)
+					index = append(index, idx)
+				} else {
+					fmt.Printf("The number %d is already in buffer\n", number)
+				}
+
+			}
+		}
+	}
+
+	if len(buffer) != 2 {
+		fmt.Println("not exactly 2 parts. not gear.")
+		return false, 0
+	}
+
+	gearRatio := 1
+	for _, num := range buffer {
+		gearRatio *= num
+	}
+
+	return true, gearRatio
+}
+
+func scanAdjacentNumber(i, j int, matrix [][]rune, allNumbers Result) (int, int) {
+
+	fmt.Printf("scan (%d,%d) for number\n", i, j)
+	count := 0
+	for _, pos := range allNumbers.Positions {
+		row := pos[0]
+		col := pos[1]
+		number := allNumbers.Numbers[count]
+		{
+		}
+		if row == i && j >= col && j <= col+len(number) {
+			num, err := strconv.Atoi(number)
+			if err != nil {
+				fmt.Println("Can not convert to int", err)
+			}
+			fmt.Println("Found matched number", num)
+			return num, count
+		}
+		count++
+	}
+	return 0, 0
+}
+
+func algoPart1(matrix [][]rune) {
 	allNumbers := findAllNumbers(matrix)
 
 	printResult(allNumbers)
 
-	sumAdjacent := sumAdjacent(allNumbers, len(matrix), len(matrix[0]), matrix)
-	sum := sumAdjacent
+	sum := sumAdjacent(allNumbers, len(matrix), len(matrix[0]), matrix)
 
-	fmt.Println("Adjacent: ", sumAdjacent)
 	fmt.Println("===================")
-	fmt.Println("Sum:", sum)
+	fmt.Println("Part1 Sum:", sum)
+	fmt.Println("===================")
+}
+
+func algoPart2(matrix [][]rune) {
+	allNumbers := findAllNumbers(matrix)
+	allGears := findAllGears(matrix, allNumbers)
+
+	fmt.Println("all Gears info:")
+	printResultRatio(allGears)
+
+	sum := sumGearRatios(allGears.Ratio)
+
+	fmt.Println("===================")
+	fmt.Println("Part2 Sum:", sum)
+	fmt.Println("===================")
 }
 
 func sumAdjacent(allNumbers Result, rowNum int, colNum int, maxtrix [][]rune) int64 {
@@ -142,7 +293,7 @@ func sumAdjacent(allNumbers Result, rowNum int, colNum int, maxtrix [][]rune) in
 
 	for i := 0; i < len(allNumbers.Numbers); i++ {
 		toCheck := allNumbers.Numbers[i]
-		fmt.Printf("Checking result %s(length:%d)\n", toCheck, len(toCheck))
+		fmt.Printf("\nChecking number: %s(length:%d)\n", toCheck, len(toCheck))
 
 		area := defineSearchArea(allNumbers, i, rowNum, colNum)
 		found := areaSearch(area, maxtrix, toCheck)
@@ -150,29 +301,16 @@ func sumAdjacent(allNumbers Result, rowNum int, colNum int, maxtrix [][]rune) in
 		if found {
 			sum += toInt(toCheck)
 		}
-
-		if false {
-			x := allNumbers.Positions[i][0]
-			y := allNumbers.Positions[i][1]
-			if isDiagonally(x, y, len(maxtrix)) {
-				sum += toInt(toCheck)
-			}
-		}
 	}
 	return sum
 }
 
-func isDiagonally(x, y, size int) bool {
-
-	if x == y {
-		return true
+func sumGearRatios(ratios []int) int {
+	sum := 0
+	for _, r := range ratios {
+		sum += r
 	}
-
-	if x+y == size {
-		return true
-	}
-
-	return false
+	return sum
 }
 
 func isSymbol(x rune) bool {
@@ -193,10 +331,13 @@ func toInt(a string) int64 {
 	return num
 }
 
-func solvePuzzle(fileName string) {
-
+func part1(fileName string) {
 	fmt.Printf("Reading from file: %s.\n", fileName)
-	content, err := ioutil.ReadFile(fileName)
+	algoPart1(loadSchema(fileName))
+}
+
+func loadSchema(fileName string) [][]rune {
+	content, err := os.ReadFile(fileName)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -210,9 +351,12 @@ func solvePuzzle(fileName string) {
 		engineSchematic[i] = []rune(line)
 	}
 
-	printTextContent(lines)
+	return engineSchematic
+}
 
-	algoTwo(engineSchematic)
+func part2(fileName string) {
+	fmt.Printf("Reading from file: %s.\n", fileName)
+	algoPart2(loadSchema(fileName))
 }
 
 func printTextContent(lines []string) {
